@@ -1,4 +1,4 @@
-const pool = require('../../RESTAPI/db')
+const pool = require('../db')
 const queries=require('./queries');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
