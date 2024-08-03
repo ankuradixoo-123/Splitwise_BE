@@ -153,6 +153,7 @@ const login = (req, res) => {
       if (isMatch) {
         // Generate JWT
         const token = jwt.sign({ userId: user.id }, 'jwt_secret', { expiresIn: '240h' });
+        
         console.log('password is sucessfully matched!')
         return res.status(200).json({ token });
       } else {

@@ -82,22 +82,52 @@ const listGroupMembers = (req, res) => {
   });
 }; 
 
-  const addGroupMember=(req,res)=>{
-    const {group_id,user_id}=req.body;
+  // const addGroupMember=(req,res)=>{
+  //   const {group_id,user_id}=req.body;
 
-    pool.query(queries.checkGroupAndUserExist,[group_id,user_id],(error,results)=>{
-      if(error)throw error;
+  //   pool.query(queries.checkGroupAndUserExist,[group_id,user_id],(error,results)=>{
+  //     if(error)throw error;
 
-      if(results.rows.length>0){
-        return res.status(400).send('user already exists inn this group!');
+  //     if(results.rows.length>0){
+  //       return res.status(400).send('user already exists inn this group!');
+  //     }
+
+  //     pool.query(queries.addGroupMember,[group_id,user_id],(error,results)=>{
+  //           if(error) throw error;
+  //           return  res.status(201).send('group member added')
+  //     })
+  //   })
+  // }
+  const addGroupMembers = async (req, res) => {
+    const { group_id, user_Ids } = req.body;
+    
+    try {
+      
+      await pool.query('BEGIN');
+     if(Array.isArray(user_Ids)){
+      for (const id of user_Ids) {
+      
+        const checkResult = await pool.query(queries.checkGroupAndUserExist, [group_id, id]);
+        if (checkResult.rows.length > 0) {
+          await pool.query('ROLLBACK');
+          return res.status(400).send('Some users already exist in this group');
+        }
+  
+        await pool.query(queries.addGroupMember, [group_id, id]);
       }
+    }else{
+            await pool.query('ROLLBACK');
+      return res.status(400).send('Invalid user_ids format');
+    }
+      await pool.query('COMMIT');
+      res.status(201).send('Group members added');
+    } catch (error) {
+      await pool.query('ROLLBACK');
+      console.error('Error adding group members:', error);
+      res.status(500).send('Server error');
+    }
+  };
 
-      pool.query(queries.addGroupMember,[group_id,user_id],(error,results)=>{
-            if(error) throw error;
-            return  res.status(201).send('group member added')
-      })
-    })
-  }
 
    const removeGroupMember=(req,res)=>{
     const{group_id,user_id}=req.body;
@@ -128,7 +158,17 @@ const listGroupMembers = (req, res) => {
       return res.status(200).send(results.rows);
     })
    }
+    
 
+   const GetExpensesByGroupId=(req,res)=>{
+
+    const GroupId=parseInt(req.params.group_id)
+    pool.query(queries.getExpenseParticipantByGroupId,[GroupId],(error,results)=>{
+      if(error)throw error;
+      
+      return res.status(200).send(results.rows);
+    })
+   }
 
    const GetUserExpenses_ById=(req,res)=>{
     const group_id=parseInt(req.params.group_id);
@@ -151,8 +191,9 @@ const listGroupMembers = (req, res) => {
 
    const addGroupExpense = async (req, res) => {
     const date=new Date().toISOString();
-    const { group_id, category, notes} = req.body;
-    const amount = 1000;  // Using a dummy amount for now
+    const { amount, category, notes} = req.body;
+    const { group_id } = req.params;
+   
   
     try {
       await pool.query('BEGIN');
@@ -167,18 +208,30 @@ const listGroupMembers = (req, res) => {
       }
   
       
-      const perMemberShare = amount / groupMembers.length;
+      const perMemberShare = amount / (groupMembers.length+1);
+  
+  
+      // const insertData = groupMembers.map(member => `(${group_id}, ${member.user_id}, '${date}','${notes}', '${category}', ${perMemberShare})`).join(',');
   
       
-      const insertData = groupMembers.map(member => `(${group_id}, ${member.user_id}, '${date}','${notes}', '${category}', ${perMemberShare})`).join(',');
-  
-      
-      const bulkInsertQuery = `
-        INSERT INTO expense_participants (group_id, payer_id,date, notes, category, amount_owe)
-        VALUES ${insertData}
-      `;
-  
-      await pool.query(bulkInsertQuery);
+      // const bulkInsertQuery = `
+      //   INSERT INTO expense_participants (group_id, payer_id,date, notes, category, amount_owe)
+      //   VALUES ${insertData}
+      // `;
+            
+      for (const member of groupMembers) {
+        await pool.query(queries.addExpenseParticipant, [
+        
+          group_id,
+          member.user_id, // Assuming member.user_id is the payer
+          date,
+          notes,
+          category,
+          perMemberShare
+        ]);
+      }
+
+      // await pool.query(bulkInsertQuery);
   
       await pool.query('COMMIT');
       res.status(201).send('Expense added and distributed successfully');
@@ -195,10 +248,11 @@ module.exports={
     getGroupsById,
     addGroup,
     updateGroup,
-    addGroupMember,
+    addGroupMembers,
     listGroupMembers,
     removeGroupMember,
     GetGroup_WithExpenses,
     GetUserExpenses_ById,
-    addGroupExpense
+    addGroupExpense,
+    GetExpensesByGroupId
 }
